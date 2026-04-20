@@ -1,0 +1,6 @@
+{
+  "name": "E-Impak PdP Guru",
+  "description": "Sistem pintar untuk membantu guru memproses nota PdP harian menjadi laporan refleksi rasmi menggunakan Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "PdpImpact": {
+      "title": "PdP Impact Record",
+      "description": "Laporan refleksi/impak PdP yang telah diproses oleh AI",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date-time", "description": "Tarikh PdP" },
+        "subject": { "type": "string", "description": "Mata Pelajaran" },
+        "subSubject": { "type": "string", "description": "Pecahan Mata Pelajaran (cth: Al-Quran)" },
+        "year": { "type": "string", "description": "Tahun (1-6)" },
+        "className": { "type": "string", "description": "Kelas" },
+        "raw_note": { "type": "string", "description": "Nota asal guru" },
+        "formal_diary": { "type": "string", "description": "Refleksi formal dari AI" },
+        "students_involved": { "type": "array", "items": { "type": "string" }, "description": "Murid yang terlibat" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Waktu simpan" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" }
+      },
+      "required": ["date", "subject", "year", "className", "raw_note", "formal_diary", "students_involved", "timestamp", "userId"]
+    },
+    "UserSettings": {
+      "title": "User Settings",
+      "description": "Tetapan peribadi guru seperti senarai kelas",
+      "type": "object",
+      "properties": {
+        "customClasses": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Maklumat murid dalam kelas",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "year": { "type": "string" },
+        "className": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["name", "year", "className", "userId"]
+    },
+    "TimetableItem": {
+      "title": "Timetable Item",
+      "description": "Jadual waktu mengajar guru",
+      "type": "object",
+      "properties": {
+        "day": { "type": "string", "enum": ["Isnin", "Selasa", "Rabu", "Khamis", "Jumaat"] },
+        "year": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "subject": { "type": "string" },
+        "subSubject": { "type": "string" },
+        "className": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["day", "year", "startTime", "endTime", "subject", "className", "userId"]
+    }
+  },
+  "firestore": {
+    "/pdp_impacts/{impactId}": {
+      "schema": "PdpImpact",
+      "description": "Koleksi rekod impak PdP"
+    },
+    "/user_settings/{userId}": {
+      "schema": "UserSettings",
+      "description": "Tetapan pengguna"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Senarai murid"
+    },
+    "/timetables/{itemId}": {
+      "schema": "TimetableItem",
+      "description": "Jadual waktu guru"
+    }
+  }
+}
