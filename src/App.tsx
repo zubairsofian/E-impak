@@ -140,7 +140,19 @@ const studentList = [
   "Muhammad Amar", "Sofiya Jannah", "Rayyan Mikael", "Zara Eryna", "Irfan Hakim", "Maya Qaisara"
 ];
 
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const getGeminiApiKey = () => {
+  if (typeof process !== 'undefined' && process.env && process.env.GEMINI_API_KEY) {
+    return process.env.GEMINI_API_KEY;
+  }
+  // @ts-ignore - Fallback for Vite environments like Vercel
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
+    // @ts-ignore
+    return import.meta.env.VITE_GEMINI_API_KEY;
+  }
+  return '';
+};
+
+const genAI = new GoogleGenAI({ apiKey: getGeminiApiKey() });
 
 interface AIResult {
   formal_diary: string;
