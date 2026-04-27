@@ -56,7 +56,8 @@ import {
   Zap,
   FilePlus,
   RefreshCcw,
-  RotateCcw
+  RotateCcw,
+  Settings
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -144,6 +145,7 @@ const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 interface AIResult {
   formal_diary: string;
   detected_students: string[];
+  student_impacts?: { name: string; impact: string }[];
 }
 
 interface PdPRecord {
@@ -156,6 +158,7 @@ interface PdPRecord {
   raw_note: string;
   formal_diary: string;
   students_involved: string[];
+  student_impacts?: { name: string; impact: string }[];
   timestamp: any;
   userId: string;
   userEmail: string;
@@ -203,11 +206,13 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<AIResult | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDateForHistory, setSelectedDateForHistory] = useState<Date | undefined>(undefined);
 
   // Student Feature State
   const [selectedYearForStudents, setSelectedYearForStudents] = useState("Tahun 1");
   const [selectedClassForStudents, setSelectedClassForStudents] = useState(DEFAULT_CLASSES[0]);
   const [selectedStudentForDashboardMurid, setSelectedStudentForDashboardMurid] = useState<string | null>(null);
+  const [filterSubjectForStudent, setFilterSubjectForStudent] = useState<string>("Semua");
   const [showAllStudentsView, setShowAllStudentsView] = useState(false);
   const [showActiveClassesView, setShowActiveClassesView] = useState(false);
   const [newStudentName, setNewStudentName] = useState("");
@@ -223,8 +228,6 @@ export default function App() {
   });
 
   // Dashboard State
-  const [selectedYearForDashboard, setSelectedYearForDashboard] = useState<string>("Semua");
-  const [selectedClassForDashboard, setSelectedClassForDashboard] = useState<string>("Semua");
   const [selectedStudentForJourney, setSelectedStudentForJourney] = useState<string | null>(null);
 
   // File Upload State
@@ -419,9 +422,16 @@ export default function App() {
           3. VALIDASI: Jika nama dikesan tetapi TIADA dalam senarai rasmi kelas tersebut, JANGAN masukkan dalam 'detected_students' (kecuali jika anda yakin itu adalah murid baru yang tiada dalam rekod).
           4. REFLEKSI RASMI: Bina perenggan refleksi mengikut laras bahasa formal KPM yang profesional.
           5. OUTPUT NAMA: 'detected_students' MESTI dalam bentuk Array yang mengandungi NAMA PENUH murid seperti dalam pangkalan data.
+          6. IMPAK INDIVIDU RINGKAS: Daripada refleksi rasmi yang dijana tadi, kesan spesifik apakah impak untuk murid-murid tersebut, kemudian jana rumusan impak yang SANGAT RINGKAS (1-2 ayat sahaja) untuk setiap murid. Fokus kepada objektif kognitif/tingkah laku atau intervensi mereka.
 
           Hasilkan output JSON sahaja:
-          { "formal_diary": "...", "detected_students": ["Nama Penuh 1", "Nama Penuh 2"] }
+          { 
+            "formal_diary": "...", 
+            "detected_students": ["Nama Penuh 1", "Nama Penuh 2"],
+            "student_impacts": [
+              { "name": "Nama Penuh 1", "impact": "Rumusan impak ringkas (1-2 ayat)..." }
+            ]
+          }
         `,
         config: {
           responseMimeType: "application/json",
@@ -432,9 +442,21 @@ export default function App() {
               // @ts-ignore
               formal_diary: { type: Type.STRING },
               // @ts-ignore
-              detected_students: { type: Type.ARRAY, items: { type: Type.STRING } }
+              detected_students: { type: Type.ARRAY, items: { type: Type.STRING } },
+              // @ts-ignore
+              student_impacts: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    impact: { type: Type.STRING }
+                  },
+                  required: ["name", "impact"]
+                }
+              }
             },
-            required: ["formal_diary", "detected_students"]
+            required: ["formal_diary", "detected_students", "student_impacts"]
           }
         }
       });
@@ -462,6 +484,7 @@ export default function App() {
         raw_note: rawNote,
         formal_diary: result.formal_diary,
         students_involved: result.detected_students,
+        student_impacts: result.student_impacts || [],
         timestamp: serverTimestamp(),
         userId: user.uid,
         userEmail: user.email || ""
@@ -650,11 +673,23 @@ export default function App() {
     }
   };
 
-  const filteredRecords = records.filter(r => 
-    r.subject.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    r.className.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.formal_diary.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const isSameDay = (date1: Date, date2: Date) => {
+    return date1.getDate() === date2.getDate() &&
+      date1.getMonth() === date2.getMonth() &&
+      date1.getFullYear() === date2.getFullYear();
+  };
+
+  const recordDates = records.map(r => new Date(r.date));
+  const filteredRecords = records.filter(r => {
+    const matchesSearch = r.subject.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      r.className.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.formal_diary.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    if (selectedDateForHistory) {
+      return matchesSearch && isSameDay(new Date(r.date), selectedDateForHistory);
+    }
+    return matchesSearch;
+  });
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>;
 
@@ -699,21 +734,21 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
-            <nav className="flex bg-slate-100 p-1 rounded-full mr-2 overflow-x-auto max-w-[300px] md:max-w-none no-scrollbar">
+            <nav className="flex bg-slate-100 p-1 rounded-full mr-2 overflow-x-auto max-w-[300px] sm:max-w-none no-scrollbar">
               <button onClick={() => setActiveTab('dashboard')} className={cn("px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0", activeTab === 'dashboard' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
-                <LayoutDashboard className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Dashboard</span>
+                <LayoutDashboard className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Main Menu</span>
               </button>
               <button onClick={() => setActiveTab('create')} className={cn("px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0", activeTab === 'create' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
-                <Plus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Baru</span>
-              </button>
-              <button onClick={() => setActiveTab('history')} className={cn("px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0", activeTab === 'history' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
-                <History className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Sejarah</span>
-              </button>
-              <button onClick={() => setActiveTab('timetable')} className={cn("px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0", activeTab === 'timetable' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
-                <CalendarIcon className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Jadual</span>
+                <Plus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Tambah Impak</span>
               </button>
               <button onClick={() => setActiveTab('students')} className={cn("px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0", activeTab === 'students' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
-                <Users className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Dashboard Murid</span>
+                <Users className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Refleksi Murid</span>
+              </button>
+              <button onClick={() => setActiveTab('history')} className={cn("px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0", activeTab === 'history' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
+                <History className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Rekod Impak</span>
+              </button>
+              <button onClick={() => setActiveTab('kawalan')} className={cn("px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2 shrink-0", activeTab === 'kawalan' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
+                <Settings className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Pusat Kawalan</span>
               </button>
             </nav>
 
@@ -765,47 +800,19 @@ export default function App() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-2 h-8 bg-blue-600 rounded-full" />
-                    <h2 className="text-4xl font-black tracking-tighter text-slate-900 uppercase">Mission <span className="text-blue-600">Control</span></h2>
+                    <h2 className="text-4xl font-black tracking-tighter text-slate-900 uppercase">e-<span className="text-blue-600">Impak</span></h2>
                   </div>
                   <p className="text-sm text-slate-500 font-bold font-mono tracking-widest uppercase opacity-70">Sistem Analisis Strategik PdP & Potensi Murid</p>
-                </div>
-                
-                <div className="flex flex-wrap items-center gap-3 bg-slate-100/80 p-2 rounded-2xl backdrop-blur-sm ring-1 ring-slate-200">
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl shadow-sm">
-                    <Filter className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Tapis:</span>
-                  </div>
-                  <Select value={selectedYearForDashboard} onValueChange={setSelectedYearForDashboard}>
-                    <SelectTrigger className="w-[140px] h-9 rounded-xl border-none shadow-none bg-transparent font-bold text-xs">
-                      <SelectValue placeholder="Tahun" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl">
-                      <SelectItem value="Semua">Semua Tahun</SelectItem>
-                      {YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Separator orientation="vertical" className="h-4" />
-                  <Select value={selectedClassForDashboard} onValueChange={setSelectedClassForDashboard}>
-                    <SelectTrigger className="w-[140px] h-9 rounded-xl border-none shadow-none bg-transparent font-bold text-xs">
-                      <SelectValue placeholder="Kelas" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl">
-                      <SelectItem value="Semua">Semua Kelas</SelectItem>
-                      {DEFAULT_CLASSES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
 
               {/* Strategic Summary Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {[
-                  { label: "Impak Keseluruhan", value: records.length, icon: Sparkles, color: "bg-blue-600" },
-                  { label: "Murid Aktif", value: new Set(records.flatMap(r => r.students_involved)).size, icon: Users, color: "bg-indigo-600" },
-                  { label: "Kelas Dipantau", value: new Set(records.map(r => r.className)).size, icon: LayoutDashboard, color: "bg-violet-600" },
-                  { label: "Sesi Hari Ini", value: records.filter(r => isToday(new Date(r.date))).length, icon: CalendarIcon, color: "bg-emerald-600" },
+                  { label: "Impak Keseluruhan", value: records.length, icon: Sparkles, color: "bg-blue-600", onClick: () => setActiveTab('calendar') },
+                  { label: "Refleksi Murid", value: new Set(records.flatMap(r => r.students_involved)).size, icon: Users, color: "bg-indigo-600", onClick: () => setActiveTab('students') },
                 ].map((stat, i) => (
-                  <Card key={i} className="border-none shadow-xl bg-white rounded-[2rem] p-6 hover:shadow-2xl transition-all group overflow-hidden relative">
+                  <Card key={i} onClick={stat.onClick} className="cursor-pointer border-none shadow-xl bg-white rounded-[2rem] p-6 hover:shadow-2xl hover:-translate-y-1 transition-all group overflow-hidden relative">
                     <div className={`absolute top-0 right-0 w-24 h-24 ${stat.color} opacity-[0.03] -mr-8 -mt-8 rounded-full group-hover:scale-150 transition-transform`} />
                     <div className="flex flex-col gap-4 relative z-10">
                       <div className={`w-10 h-10 ${stat.color} rounded-2xl flex items-center justify-center shadow-lg group-hover:rotate-12 transition-transform`}>
@@ -875,7 +882,14 @@ export default function App() {
                           {format(date, "d MMM yyyy")}
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0 border-none shadow-2xl rounded-2xl overflow-hidden" align="start">
-                          <Calendar mode="single" selected={date} onSelect={(d) => d && setDate(d)} initialFocus />
+                          <Calendar 
+                            mode="single" 
+                            selected={date} 
+                            onSelect={(d) => d && setDate(d)} 
+                            modifiers={{ hasRecord: recordDates }}
+                            modifiersClassNames={{ hasRecord: "bg-blue-100 text-blue-900 font-bold" }}
+                            initialFocus 
+                          />
                         </PopoverContent>
                       </Popover>
                     </div>
@@ -1022,9 +1036,19 @@ export default function App() {
                   <h2 className="text-3xl font-black tracking-tight text-slate-900">Sejarah Rekod</h2>
                   <p className="text-sm text-slate-500 font-medium tracking-tight">Menyimpan {records.length} rekod PdP anda secara selamat.</p>
                 </div>
-                <div className="relative group max-w-xs w-full">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-slate-900 transition-colors" />
-                  <Input placeholder="Cari rekod, kelas atau subjek..." className="h-11 pl-11 pr-4 rounded-2xl border-slate-200 bg-white focus:ring-slate-900 transition-all font-medium" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                <div className="flex items-center gap-4 w-full sm:w-auto">
+                  {selectedDateForHistory && (
+                    <Badge variant="secondary" className="px-3 py-1.5 rounded-xl bg-blue-100 text-blue-700 font-bold border-blue-200 gap-2 cursor-pointer" onClick={() => setSelectedDateForHistory(undefined)}>
+                      {format(selectedDateForHistory, "dd MMM yyyy")}
+                      <div className="bg-blue-200/50 rounded-full p-0.5 hover:bg-blue-300 transition-colors">
+                        <Trash2 className="w-3 h-3" />
+                      </div>
+                    </Badge>
+                  )}
+                  <div className="relative group max-w-xs w-full flex-1">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-slate-900 transition-colors" />
+                    <Input placeholder="Cari rekod, kelas atau subjek..." className="h-11 pl-11 pr-4 rounded-2xl border-slate-200 bg-white focus:ring-slate-900 transition-all font-medium" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                  </div>
                 </div>
               </div>
 
@@ -1091,6 +1115,39 @@ export default function App() {
                   ))}
                 </div>
               )}
+            </motion.div>
+          )}
+
+          {activeTab === 'calendar' && (
+            <motion.div key="calendar" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4">
+                <div className="space-y-1">
+                  <h2 className="text-3xl font-black tracking-tight text-slate-900">Kalendar Impak</h2>
+                  <p className="text-sm text-slate-500 font-medium tracking-tight">Pilih tarikh untuk melihat impak PdP pada hari tersebut.</p>
+                </div>
+                <Button variant="outline" className="h-11 rounded-2xl font-bold border-slate-200" onClick={() => {
+                  setSelectedDateForHistory(undefined);
+                  setActiveTab('history');
+                }}>
+                  Semua Rekod
+                </Button>
+              </div>
+
+              <Card className="border-none shadow-xl bg-white rounded-[2rem] p-8 overflow-hidden max-w-sm mx-auto">
+                <Calendar
+                  mode="single"
+                  selected={selectedDateForHistory}
+                  onSelect={(d) => {
+                    if (d) {
+                      setSelectedDateForHistory(d);
+                      setActiveTab('history');
+                    }
+                  }}
+                  modifiers={{ hasRecord: recordDates }}
+                  modifiersClassNames={{ hasRecord: "bg-blue-100 text-blue-900 font-bold" }}
+                  className="rounded-md border-transparent mx-auto"
+                />
+              </Card>
             </motion.div>
           )}
 
@@ -1216,7 +1273,7 @@ export default function App() {
                     <div className="p-2.5 bg-blue-600 rounded-2xl">
                       <GraduationCap className="w-8 h-8 text-white" />
                     </div>
-                    <h2 className="text-4xl font-black tracking-tighter text-slate-900 uppercase">Hub <span className="text-blue-600">Strategik</span></h2>
+                    <h2 className="text-4xl font-black tracking-tighter text-slate-900 uppercase">Refleksi <span className="text-blue-600">Murid</span></h2>
                   </div>
                   <p className="text-sm text-slate-500 font-bold font-mono tracking-widest uppercase opacity-70">Pengurusan Profil & Analisis Perjalanan Murid</p>
                 </div>
@@ -1234,130 +1291,9 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Stats Summary Panel */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {[
-                  { label: "Populasi Murid", value: students.length, icon: Users, color: "text-blue-600", bg: "bg-blue-50", onClick: () => setShowAllStudentsView(true) },
-                  { label: "Kelas Strategik", value: new Set(students.map(s => s.className)).size, icon: LayoutDashboard, color: "text-indigo-600", bg: "bg-indigo-50" },
-                  { label: "Aktif Rekod", value: new Set(records.map(r => r.className)).size, icon: Zap, color: "text-violet-600", bg: "bg-violet-50", onClick: () => setShowActiveClassesView(true) },
-                  { label: "Sesi Terkini", value: records.length, icon: History, color: "text-emerald-600", bg: "bg-emerald-50" },
-                ].map((stat, i) => (
-                  <Card 
-                    key={i} 
-                    onClick={stat.onClick}
-                    className={cn(
-                      "border-none shadow-sm p-8 rounded-[2rem] transition-all group overflow-hidden relative",
-                      stat.bg,
-                      stat.onClick ? "cursor-pointer hover:shadow-xl hover:-translate-y-1" : ""
-                    )}
-                  >
-                    <div className="flex items-center gap-4 relative z-10">
-                      <div className={cn("p-4 rounded-2xl bg-white shadow-sm group-hover:scale-110 transition-transform", stat.color)}>
-                        <stat.icon className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">{stat.label}</p>
-                        <h4 className="text-3xl font-black text-slate-900 leading-tight">{stat.value}</h4>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                {/* Side Control: Filter & Import */}
-                <div className="lg:col-span-4 space-y-6">
-                   <Card className="border-none shadow-2xl bg-slate-900 text-white rounded-[2.5rem] p-8 relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-8 opacity-10 rotate-12">
-                        <FileUp className="w-20 h-20" />
-                      </div>
-                      <div className="relative z-10 space-y-8">
-                        <div className="space-y-4">
-                           <div className="flex items-center justify-between">
-                              <p className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em]">Pusat Kawalan Hub</p>
-                              <Badge className="bg-blue-600/20 text-blue-300 border-none">SMART AI</Badge>
-                           </div>
-                           
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-2">
-                                <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tahun</Label>
-                                <Select value={selectedYearForStudents} onValueChange={setSelectedYearForStudents}>
-                                  <SelectTrigger className="h-10 rounded-xl bg-white/5 border-white/10 text-white font-bold"><SelectValue /></SelectTrigger>
-                                  <SelectContent className="rounded-xl">
-                                    {YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-2">
-                                <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kelas</Label>
-                                <Select value={selectedClassForStudents} onValueChange={setSelectedClassForStudents}>
-                                  <SelectTrigger className="h-10 rounded-xl bg-white/5 border-white/10 text-white font-bold"><SelectValue /></SelectTrigger>
-                                  <SelectContent className="rounded-xl overflow-y-auto max-h-[300px]">
-                                    {(YEAR_CLASSES[selectedYearForStudents] || []).map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                           </div>
-
-                           <Button 
-                              onClick={() => document.getElementById('student-upload-new')?.click()}
-                              disabled={isImporting}
-                              className="w-full h-14 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95"
-                            >
-                              {isImporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FilePlus className="w-4 h-4 mr-2" />} 
-                              Import Senarai
-                           </Button>
-                           <input type="file" id="student-upload-new" className="hidden" accept=".pdf,.xlsx,.xls,.doc,.docx,image/*" onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'students')} />
-                        </div>
-
-                        <Separator className="bg-white/10" />
-
-                        <div className="space-y-4">
-                           <Label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Kemasukan Pukal</Label>
-                           <Textarea 
-                              placeholder="Masukkan nama murid setiap baris..." 
-                              value={bulkStudentInput} 
-                              onChange={(e) => setBulkStudentInput(e.target.value)}
-                              className="rounded-2xl min-h-[140px] bg-white/5 border-white/10 text-white text-xs font-medium placeholder:text-slate-600 focus:ring-blue-600"
-                           />
-                           <Button onClick={handleBulkAddStudents} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px]">
-                              Sahkan Senarai
-                           </Button>
-                        </div>
-
-                        <Separator className="bg-white/10" />
-
-                        <div className="pt-4">
-                           <Button 
-                              variant={resetConfirmStep === 1 ? "destructive" : "outline"} 
-                              onClick={handleResetData}
-                              disabled={isResetting}
-                              className={cn(
-                                "w-full h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all duration-300",
-                                resetConfirmStep === 1 
-                                  ? "bg-red-600 text-white animate-pulse" 
-                                  : "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white"
-                              )}
-                           >
-                              {isResetting ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                              ) : resetConfirmStep === 1 ? (
-                                <RotateCcw className="w-4 h-4 mr-2" />
-                              ) : (
-                                <RotateCcw className="w-4 h-4 mr-2" />
-                              )}
-                              {isResetting ? "Membersihkan..." : resetConfirmStep === 1 ? "Sahkan Pemadaman" : "Reset Sistem"}
-                           </Button>
-                           <p className="text-[9px] text-slate-500 mt-2 text-center italic">
-                              {resetConfirmStep === 1 ? "AWAS: Tindakan ini tidak boleh diundur!" : "Berhati-hati: Memadam semua data!"}
-                           </p>
-                        </div>
-                      </div>
-                   </Card>
-                </div>
-
+              <div>
                 {/* Main Content: Student Explorer / Profile */}
-                <div className="lg:col-span-8 space-y-6">
+                <div className="space-y-6">
                   {selectedStudentForDashboardMurid ? (
                     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
                        <Card className="border-none shadow-2xl bg-white rounded-[3rem] p-8 overflow-hidden relative">
@@ -1399,43 +1335,71 @@ export default function App() {
                           </div>
 
                           <div className="mt-10 space-y-8">
-                             <div className="flex items-center gap-4">
+                             <div className="flex items-center justify-between gap-4">
                                 <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 whitespace-nowrap">Perjalanan PdP</span>
                                 <Separator className="flex-1" />
+                                <Select value={filterSubjectForStudent} onValueChange={setFilterSubjectForStudent}>
+                                   <SelectTrigger className="w-[180px] h-9 rounded-xl border-slate-200 bg-slate-50 font-bold text-xs"><SelectValue placeholder="Semua Subjek" /></SelectTrigger>
+                                   <SelectContent className="rounded-xl">
+                                      <SelectItem value="Semua">Semua Subjek</SelectItem>
+                                      {DEFAULT_SUBJECTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                                   </SelectContent>
+                                </Select>
                              </div>
                              
                              <div className="space-y-6 relative before:absolute before:left-[19px] before:top-2 before:bottom-0 before:w-0.5 before:bg-slate-100 before:content-['']">
-                                {records.filter(r => r.students_involved.includes(selectedStudentForDashboardMurid!)).length > 0 ? (
+                                {records.filter(r => r.students_involved.includes(selectedStudentForDashboardMurid!) && (filterSubjectForStudent === "Semua" || r.subject === filterSubjectForStudent)).length > 0 ? (
                                   records
-                                    .filter(r => r.students_involved.includes(selectedStudentForDashboardMurid!))
+                                    .filter(r => r.students_involved.includes(selectedStudentForDashboardMurid!) && (filterSubjectForStudent === "Semua" || r.subject === filterSubjectForStudent))
                                     .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                                    .map((rec, i) => (
-                                      <motion.div 
-                                        key={i} 
-                                        initial={{ opacity: 0, x: -10 }} 
-                                        animate={{ opacity: 1, x: 0 }} 
-                                        transition={{ delay: i * 0.1 }}
-                                        className="relative pl-12 group"
-                                      >
-                                        <div className="absolute left-0 top-1 w-10 h-10 bg-white border-2 border-slate-100 rounded-2xl flex items-center justify-center z-10 group-hover:border-blue-500 group-hover:scale-110 transition-all shadow-sm">
-                                           <div className="w-2 h-2 bg-slate-300 rounded-full group-hover:bg-blue-600 transition-colors" />
-                                        </div>
-                                        <Card className="p-6 border-none shadow-sm ring-1 ring-slate-100 rounded-[2rem] bg-white group-hover:shadow-xl transition-all">
-                                           <div className="flex justify-between items-center mb-4">
-                                              <div className="flex flex-col">
-                                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{format(new Date(rec.date), "dd MMMM yyyy")}</span>
-                                                 <span className="text-sm font-black text-slate-900">{rec.subject}</span>
-                                              </div>
-                                              <Badge className="bg-blue-600 text-white rounded-lg text-[9px] font-black tracking-widest">{rec.className}</Badge>
-                                           </div>
-                                           <p className="text-sm text-slate-600 font-serif italic leading-relaxed">"{rec.formal_diary}"</p>
-                                        </Card>
-                                      </motion.div>
-                                    ))
+                                    .map((rec, i) => {
+                                      const studentImpactData = rec.student_impacts?.find(imp => imp.name === selectedStudentForDashboardMurid);
+                                      return (
+                                        <motion.div 
+                                          key={i} 
+                                          initial={{ opacity: 0, x: -10 }} 
+                                          animate={{ opacity: 1, x: 0 }} 
+                                          transition={{ delay: i * 0.1 }}
+                                          className="relative pl-12 group"
+                                        >
+                                          <div className="absolute left-0 top-1 w-10 h-10 bg-white border-2 border-slate-100 rounded-2xl flex items-center justify-center z-10 group-hover:border-blue-500 group-hover:scale-110 transition-all shadow-sm">
+                                             <div className="w-2 h-2 bg-slate-300 rounded-full group-hover:bg-blue-600 transition-colors" />
+                                          </div>
+                                          <Card className="p-6 border-none shadow-sm ring-1 ring-slate-100 rounded-[2rem] bg-white group-hover:shadow-xl transition-all">
+                                             <div className="flex justify-between items-start mb-4">
+                                                <div className="flex flex-col">
+                                                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{format(new Date(rec.date), "dd MMMM yyyy")}</span>
+                                                   <span className="text-sm font-black text-slate-900 mt-1 flex items-center gap-2">
+                                                      {rec.subject}
+                                                      {rec.subSubject && <Badge variant="outline" className="text-[9px] px-1.5 h-4">{rec.subSubject}</Badge>}
+                                                   </span>
+                                                </div>
+                                                <Badge className="bg-blue-600 text-white rounded-lg text-[9px] font-black tracking-widest">{rec.className}</Badge>
+                                             </div>
+                                             
+                                             {studentImpactData ? (
+                                                <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100/50">
+                                                  <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                                     <Zap className="w-3 h-3" /> Impak Individu AI
+                                                  </p>
+                                                  <p className="text-sm text-slate-700 font-medium leading-relaxed">
+                                                     {studentImpactData.impact}
+                                                  </p>
+                                                </div>
+                                             ) : (
+                                                <div className="bg-slate-50 p-4 rounded-2xl">
+                                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Refleksi Kelas (Umum)</p>
+                                                  <p className="text-sm text-slate-600 font-serif italic leading-relaxed">"{rec.formal_diary}"</p>
+                                                </div>
+                                             )}
+                                          </Card>
+                                        </motion.div>
+                                      );
+                                    })
                                 ) : (
                                   <div className="py-20 text-center bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2.5rem]">
                                      <History className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Tiada Rekod Linkage</p>
+                                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Tiada Rekod Impak</p>
                                   </div>
                                 )}
                              </div>
@@ -1545,6 +1509,111 @@ export default function App() {
                   )}
                 </div>
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence mode="wait">
+          {activeTab === 'kawalan' && (
+            <motion.div key="kawalan" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+               <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-8 bg-slate-900 rounded-full" />
+                    <h2 className="text-4xl font-black tracking-tighter text-slate-900 uppercase">Pusat <span className="text-blue-600">Kawalan</span></h2>
+                  </div>
+                  <p className="text-sm text-slate-500 font-bold font-mono tracking-widest uppercase opacity-70">Pengurusan Pangkalan Data & Import Berskala</p>
+                </div>
+              </div>
+
+               <div className="max-w-xl mx-auto space-y-6 mt-12">
+                   <Card className="border-none shadow-2xl bg-slate-900 text-white rounded-[2.5rem] p-8 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-8 opacity-10 rotate-12">
+                        <FileUp className="w-32 h-32" />
+                      </div>
+                      <div className="relative z-10 space-y-8">
+                        <div className="space-y-4">
+                           <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em]">Pusat Kawalan Hub</p>
+                              <Badge className="bg-blue-600/20 text-blue-300 border-none">SMART AI</Badge>
+                           </div>
+                           
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-2">
+                                <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tahun</Label>
+                                <Select value={selectedYearForStudents} onValueChange={setSelectedYearForStudents}>
+                                  <SelectTrigger className="h-12 rounded-xl bg-white/5 border-white/10 text-white font-bold"><SelectValue /></SelectTrigger>
+                                  <SelectContent className="rounded-xl">
+                                    {YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kelas</Label>
+                                <Select value={selectedClassForStudents} onValueChange={setSelectedClassForStudents}>
+                                  <SelectTrigger className="h-12 rounded-xl bg-white/5 border-white/10 text-white font-bold"><SelectValue /></SelectTrigger>
+                                  <SelectContent className="rounded-xl overflow-y-auto max-h-[300px]">
+                                    {(YEAR_CLASSES[selectedYearForStudents] || []).map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                           </div>
+
+                           <Button 
+                              onClick={() => document.getElementById('student-upload-new')?.click()}
+                              disabled={isImporting}
+                              className="w-full h-14 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl transition-all active:scale-95"
+                            >
+                              {isImporting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <FilePlus className="w-5 h-5 mr-2" />} 
+                              Import Senarai ({students.length} Terkini)
+                           </Button>
+                           <input type="file" id="student-upload-new" className="hidden" accept=".pdf,.xlsx,.xls,.doc,.docx,image/*" onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'students')} />
+                        </div>
+
+                        <Separator className="bg-white/10" />
+
+                        <div className="space-y-4">
+                           <Label className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Kemasukan Pukal</Label>
+                           <Textarea 
+                              placeholder="Masukkan nama murid setiap baris..." 
+                              value={bulkStudentInput} 
+                              onChange={(e) => setBulkStudentInput(e.target.value)}
+                              className="rounded-2xl min-h-[140px] bg-white/5 border-white/10 text-white text-xs font-medium placeholder:text-slate-600 focus:ring-blue-600"
+                           />
+                           <Button onClick={handleBulkAddStudents} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px]">
+                              Sahkan Senarai Tambahan
+                           </Button>
+                        </div>
+
+                        <Separator className="bg-white/10" />
+
+                        <div className="pt-4">
+                           <Button 
+                              variant={resetConfirmStep === 1 ? "destructive" : "outline"} 
+                              onClick={handleResetData}
+                              disabled={isResetting}
+                              className={cn(
+                                "w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all duration-300",
+                                resetConfirmStep === 1 
+                                  ? "bg-red-600 text-white animate-pulse" 
+                                  : "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white"
+                              )}
+                           >
+                              {isResetting ? (
+                                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                              ) : resetConfirmStep === 1 ? (
+                                <RotateCcw className="w-5 h-5 mr-2" />
+                              ) : (
+                                <RotateCcw className="w-5 h-5 mr-2" />
+                              )}
+                              {isResetting ? "Membersihkan..." : resetConfirmStep === 1 ? "Sahkan Pemadaman" : "Reset Sistem (Buang Semua Data)"}
+                           </Button>
+                           <p className="text-[9px] text-slate-500 mt-3 text-center italic">
+                              {resetConfirmStep === 1 ? "AWAS: Tindakan ini tidak boleh diundur!" : "Berhati-hati: Memadam semua data!"}
+                           </p>
+                        </div>
+                      </div>
+                   </Card>
+               </div>
             </motion.div>
           )}
         </AnimatePresence>
