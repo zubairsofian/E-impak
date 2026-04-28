@@ -409,6 +409,10 @@ export default function App() {
       return toast.error("Sila isi semua maklumat butiran PdP.");
     }
     
+    if (!getGeminiApiKey()) {
+      return toast.error("API Key Gemini tidak ditemui. Sila pastikan VITE_GEMINI_API_KEY telah dimasukkan di Environment Variables Vercel anda.");
+    }
+
     setIsProcessing(true);
 
     try {
@@ -427,14 +431,16 @@ export default function App() {
           Nota asal guru: "${rawNote}"
 
           Arahan Matching & Analisis Pintar (MANDATORI):
-          1. PROSES PADANAN: Gunakan strategi "Fuzzy Matching" untuk memadankan nama pendek dalam nota guru dengan "Senarai Nama Murid Rasmi".
+          1. KATA KUNCI KESELURUHAN: Jika nota menyatakan perkataan seperti "semua", "semua murid", atau "satu kelas", anda PERLU menyenaraikan SEMUA nama murid yang ada di dalam "Senarai Nama Murid Rasmi" ke dalam \`detected_students\`. 
+             - PERHATIAN PENTING PENGECUALIAN: Walau bagaimanapun, jika ada disebut pengecualian selepas itu (contoh: "semua faham GAGAL Ali" atau "semua murid faham KECUALI Siti"), maka di dalam \`detected_students\`, ANDA MESTI GUGURKAN / KELUARKAN nama pelajar yang dikecualikan tersebut (selepas dipadankan ke nama penuh) dari senarai semua itu.
+          2. PROSES PADANAN: Gunakan strategi "Fuzzy Matching" untuk memadankan nama pendek dalam nota guru dengan "Senarai Nama Murid Rasmi".
              * CONTOH: Jika nota tulis "Ali", dan senarai ada "MUHAMMAD ALI BIN ABU", output MESTI "MUHAMMAD ALI BIN ABU".
              * CONTOH: Jika nota tulis "Nurul", dan senarai ada "NURUL IZZAH BINTI ANWAR", output MESTI "NURUL IZZAH BINTI ANWAR".
-          2. HIERARKI PENGERTIAN: Fokus HANYA pada nama murid yang wujud dalam senarai rasmi bagi Tahun ${year} dan Kelas ${className} yang telah diberikan.
-          3. VALIDASI: Jika nama dikesan tetapi TIADA dalam senarai rasmi kelas tersebut, JANGAN masukkan dalam 'detected_students' (kecuali jika anda yakin itu adalah murid baru yang tiada dalam rekod).
-          4. REFLEKSI RASMI: Bina perenggan refleksi mengikut laras bahasa formal KPM yang profesional.
-          5. OUTPUT NAMA: 'detected_students' MESTI dalam bentuk Array yang mengandungi NAMA PENUH murid seperti dalam pangkalan data.
-          6. IMPAK INDIVIDU RINGKAS: Daripada refleksi rasmi yang dijana tadi, kesan spesifik apakah impak untuk murid-murid tersebut, kemudian jana rumusan impak yang SANGAT RINGKAS (1-2 ayat sahaja) untuk setiap murid. Fokus kepada objektif kognitif/tingkah laku atau intervensi mereka.
+          3. HIERARKI PENGERTIAN: Fokus HANYA pada nama murid yang wujud dalam senarai rasmi bagi Tahun ${year} dan Kelas ${className} yang telah diberikan.
+          4. VALIDASI: Jika nama dikesan tetapi TIADA dalam senarai rasmi kelas tersebut, JANGAN masukkan dalam 'detected_students'.
+          5. REFLEKSI RASMI: Bina perenggan refleksi mengikut laras bahasa formal KPM yang profesional. Jangan letakkan nama murid pada refleksi melainkan perlu.
+          6. OUTPUT NAMA: 'detected_students' MESTI dalam bentuk Array yang mengandungi NAMA PENUH murid seperti dalam pangkalan data.
+          7. IMPAK INDIVIDU RINGKAS: Daripada refleksi rasmi yang dijana tadi, kesan spesifik apakah impak untuk murid-murid tersebut, kemudian jana rumusan impak yang SANGAT RINGKAS (1-2 ayat sahaja) untuk setiap murid. Fokus kepada objektif kognitif/tingkah laku atau intervensi mereka.
 
           Hasilkan output JSON sahaja:
           { 
@@ -971,11 +977,11 @@ export default function App() {
                       value={rawNote}
                       onChange={(e) => setRawNote(e.target.value)}
                     />
-                    <div className="absolute bottom-4 right-4">
-                      <Button onClick={handleProcessAI} disabled={isProcessing || !rawNote} className="rounded-2xl h-12 px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-xl shadow-blue-100 transition-all active:scale-95">
-                        {isProcessing ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Menjana...</> : <><Sparkles className="w-4 h-4 mr-2" /> Proses Pintar</>}
-                      </Button>
-                    </div>
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <Button onClick={handleProcessAI} disabled={isProcessing || !rawNote} className="rounded-2xl h-12 px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-xl shadow-blue-100 transition-all active:scale-95">
+                      {isProcessing ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Menjana...</> : <><Sparkles className="w-4 h-4 mr-2" /> Proses Pintar</>}
+                    </Button>
                   </div>
                 </section>
               </div>
